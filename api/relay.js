@@ -12,6 +12,7 @@
 //   {"action":"pull","offset":123}                 → پیام‌های تازه
 //   {"action":"send","chat_id":1,"text":"..."}     → ارسال پیام
 //   {"action":"me"}                                → تست سلامت
+//   {"action":"fetch","url":"https://..."}         → واکشی منبعی که مستقیم بسته است
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const RELAY_KEY = process.env.RELAY_KEY || "";
@@ -108,6 +109,37 @@ export default async function handler(req, res) {
         reply_markup: body.menu === false ? undefined : MENU,
       });
       return res.status(200).json({ ok: !!d.ok, error: d.description || null });
+    }
+
+    // ─── واکشی از طرف سایت ───
+    // چند منبع (مثل Cloudflare) درخواست مستقیم سرور ایران را ۴۰۳ می‌دهند.
+    // اینجا از سمت Vercel گرفته می‌شود و خام برگردانده می‌شود.
+    if (action === "fetch") {
+      const url = String(body.url || "");
+      if (!/^https?:\/\//i.test(url)) {
+        return res.status(400).json({ ok: false, error: "bad_url" });
+      }
+      const t0 = Date.now();
+      const r = await fetch(url, {
+        redirect: "follow",
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+          "Accept":
+            "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, text/html;q=0.8, */*;q=0.7",
+          "Accept-Language": "en-US,en;q=0.9",
+        },
+      });
+      let text = await r.text();
+      const truncated = text.length > 900000;
+      if (truncated) text = text.slice(0, 900000);
+      return res.status(200).json({
+        ok: r.ok,
+        status: r.status,
+        ms: Date.now() - t0,
+        truncated,
+        body: text,
+      });
     }
 
     // ─── ارسال دسته‌ای ───
